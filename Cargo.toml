@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 tokio = "0.1"
 futures = "0.1"
+smallvec = "0.6"

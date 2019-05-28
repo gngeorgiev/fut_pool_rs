@@ -2,13 +2,13 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use crate::connector::Connector;
-use crate::pool::Pool;
+use crate::pool::{Pool, Peek};
 
-pub struct PoolBuilder<T> {
+pub struct PoolBuilder<T> where T: Peek {
     _connector: Option<Arc<Box<Connector<T>>>>,
 }
 
-impl<T> PoolBuilder<T> {
+impl<T> PoolBuilder<T> where T: Peek {
     pub fn new() -> PoolBuilder<T> {
         PoolBuilder { _connector: None }
     }
