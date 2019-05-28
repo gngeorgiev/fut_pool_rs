@@ -1,11 +1,11 @@
 use futures::{task, try_ready, Async, Future, Poll};
+use smallvec::SmallVec;
 use std::collections::VecDeque;
 use std::io;
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
-use tokio::net::TcpStream;
 use tokio::io::Error;
-use smallvec::SmallVec;
+use tokio::net::TcpStream;
 
 use crate::builder::PoolBuilder;
 use crate::connector::Connector;
@@ -21,13 +21,19 @@ impl Peek for TcpStream {
     }
 }
 
-pub struct Pool<T> where T: Peek {
-    pub(crate) connector: Arc<Box<Connector<T>>>,
+pub struct Pool<T>
+where
+    T: Peek,
+{
+    pub(crate) connector: Arc<Connector<T>>,
 
     pub(crate) items: Arc<RwLock<VecDeque<T>>>,
 }
 
-impl<T> Clone for Pool<T> where T: Peek {
+impl<T> Clone for Pool<T>
+where
+    T: Peek,
+{
     fn clone(&self) -> Self {
         Pool {
             connector: self.connector.clone(),
@@ -36,7 +42,10 @@ impl<T> Clone for Pool<T> where T: Peek {
     }
 }
 
-impl<T> Pool<T> where T: Peek {
+impl<T> Pool<T>
+where
+    T: Peek,
+{
     pub fn builder() -> PoolBuilder<T> {
         PoolBuilder::new()
     }
@@ -61,7 +70,10 @@ impl<T> Pool<T> where T: Peek {
     }
 }
 
-pub struct PoolTaker<T> where T: Peek {
+pub struct PoolTaker<T>
+where
+    T: Peek,
+{
     buf: SmallVec<[u8; 1]>,
     pool: Pool<T>,
     connector_future: Option<Box<Future<Item = T, Error = io::Error>>>,
@@ -70,7 +82,10 @@ pub struct PoolTaker<T> where T: Peek {
 unsafe impl<T> Send for PoolTaker<T> where T: Peek {}
 unsafe impl<T> Sync for PoolTaker<T> where T: Peek {}
 
-impl<T> PoolTaker<T> where T: Peek {
+impl<T> PoolTaker<T>
+where
+    T: Peek,
+{
     fn new(pool: Pool<T>) -> PoolTaker<T> {
         PoolTaker {
             buf: SmallVec::new(),
@@ -80,43 +95,42 @@ impl<T> PoolTaker<T> where T: Peek {
     }
 }
 
-impl<T> Future for PoolTaker<T> where T: Peek {
+impl<T> Future for PoolTaker<T>
+where
+    T: Peek,
+{
     type Item = T;
-
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         if let Some(ref mut connector_future) = self.connector_future {
-            dbg!("poll 1");
             let item = try_ready!(connector_future.poll());
-            Ok(Async::Ready(item))
-        } else {
-            if let Some(mut item) = self.pool.try_take() {
-                dbg!("poll 2");
-                match item.poll_peek(self.buf.as_mut_slice()) {
-                    Ok(Async::NotReady) => {
+            return Ok(Async::Ready(item));
+        }
+
+        if let Some(mut item) = self.pool.try_take() {
+            match item.poll_peek(self.buf.as_mut_slice()) {
+                Ok(Async::NotReady) => {
+                    task::current().notify();
+                    Ok(Async::NotReady)
+                }
+                Ok(Async::Ready(b)) => {
+                    if b == 0 {
                         task::current().notify();
                         Ok(Async::NotReady)
-                    },
-                    Ok(Async::Ready(b)) => {
-                        if b == 0 {
-                            task::current().notify();
-                            Ok(Async::NotReady)
-                        } else {
-                            Ok(Async::Ready(item))
-                        }
-                    },
-                    Err(err) => {
-                        task::current().notify();
-                        Ok(Async::NotReady)
+                    } else {
+                        Ok(Async::Ready(item))
                     }
                 }
-            } else {
-                dbg!("poll 3");
-                self.connector_future = Some((self.pool.connector)());
-                task::current().notify();
-                Ok(Async::NotReady)
+                Err(err) => {
+                    task::current().notify();
+                    Ok(Async::NotReady)
+                }
             }
+        } else {
+            self.connector_future = Some((self.pool.connector)());
+            task::current().notify();
+            Ok(Async::NotReady)
         }
     }
 }

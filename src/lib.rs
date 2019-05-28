@@ -4,15 +4,15 @@ mod pool;
 
 pub use builder::PoolBuilder;
 pub use connector::Connector;
-pub use pool::{Pool, PoolTaker, Peek};
+pub use pool::{Peek, Pool, PoolTaker};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use futures::prelude::*;
-    use futures::{Poll, Async};
-    use tokio::io::{Error, ErrorKind};
+    use futures::{Async, Poll};
     use std::sync::Arc;
+    use tokio::io::{Error, ErrorKind};
 
     #[derive(Debug, Clone)]
     struct TcpConn;
@@ -26,7 +26,7 @@ mod tests {
     #[test]
     fn default_values() {
         let pool = Pool::builder()
-            .connector(Box::new(|| Box::new(futures::future::ok(TcpConn))))
+            .connector(|| futures::future::ok(TcpConn))
             .build();
 
         assert_eq!(0, pool.size());
@@ -36,7 +36,7 @@ mod tests {
     #[test]
     fn connect_1() {
         let pool = Pool::builder()
-            .connector(Box::new(|| Box::new(futures::future::ok(TcpConn))))
+            .connector(|| futures::future::ok(TcpConn))
             .build();
 
         let p = pool.clone();
@@ -55,9 +55,8 @@ mod tests {
     #[test]
     fn connect_2_take_detach_one() {
         let pool = Pool::builder()
-            .connector(Box::new(|| Box::new(futures::future::ok(TcpConn))))
+            .connector(|| futures::future::ok(TcpConn))
             .build();
-
 
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         let p = pool.clone();
@@ -65,7 +64,8 @@ mod tests {
             p.put(s.clone());
             p.put(s.clone());
             Ok(())
-        })).unwrap();
+        }))
+        .unwrap();
 
         assert_eq!(2, pool.size());
         let conn = pool.try_take();
