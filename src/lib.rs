@@ -164,6 +164,44 @@ mod tests {
     }
 
     #[test]
+    fn capacity_2() {
+        let pool = Pool::<TcpConn>::builder()
+            .connector(|| futures::future::ok(TcpConn(true)))
+            .capacity(Some(2))
+            .build();
+
+        let fut = async move {
+            let mut v = vec![];
+            for _ in 0..5 {
+                v.push(pool.take().await.unwrap().detach().unwrap());
+            }
+
+            v.into_iter().for_each(|c| pool.put(c));
+            assert_eq!(pool.size(), 2);
+        };
+        tokio_run_async!(fut);
+    }
+
+    #[test]
+    fn capacity_none() {
+        let pool = Pool::<TcpConn>::builder()
+            .connector(|| futures::future::ok(TcpConn(true)))
+            .capacity(None)
+            .build();
+
+        let fut = async move {
+            let mut v = vec![];
+            for _ in 0..5 {
+                v.push(pool.take().await.unwrap().detach().unwrap());
+            }
+
+            v.into_iter().for_each(|c| pool.put(c));
+            assert_eq!(pool.size(), 5);
+        };
+        tokio_run_async!(fut);
+    }
+
+    #[test]
     fn fail_after_3_max_tries() {
         use std::sync::{Arc, Mutex};
 

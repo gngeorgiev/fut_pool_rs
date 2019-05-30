@@ -19,7 +19,8 @@ where
     pub(crate) connections: Arc<RwLock<VecDeque<T>>>,
 
     pub(crate) timeout: Option<Duration>,
-    pub(crate) max_tries: Option<u32>,
+    pub(crate) max_tries: Option<usize>,
+    pub(crate) capacity: Option<usize>,
 }
 
 impl<T> Clone for Pool<T>
@@ -32,6 +33,7 @@ where
             connections: self.connections.clone(),
             timeout: self.timeout.clone(),
             max_tries: self.max_tries.clone(),
+            capacity: self.capacity.clone(),
         }
     }
 }
@@ -56,6 +58,11 @@ where
 
     pub fn put(&self, connection: T) {
         let mut connections = self.connections.write();
+        let capacity = self.capacity.unwrap_or_else(|| 0);
+        if capacity > 0 && connections.len() >= capacity {
+            connections.pop_back();
+        }
+
         connections.push_back(connection);
     }
 

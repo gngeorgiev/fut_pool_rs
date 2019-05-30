@@ -16,7 +16,8 @@ where
 {
     _connector: Option<Arc<Connector<T>>>,
     _timeout: Option<Duration>,
-    _max_tries: Option<u32>,
+    _max_tries: Option<usize>,
+    _capacity: Option<usize>,
 }
 
 impl<T> PoolBuilder<T>
@@ -28,6 +29,7 @@ where
             _connector: None,
             _timeout: Some(Duration::from_secs(10)),
             _max_tries: Some(10),
+            _capacity: None,
         }
     }
 
@@ -44,17 +46,25 @@ where
         self
     }
 
-    pub fn max_tries(mut self, max_tries: Option<u32>) -> Self {
+    pub fn max_tries(mut self, max_tries: Option<usize>) -> Self {
         self._max_tries = max_tries;
         self
     }
 
+    pub fn capacity(mut self, capacity: Option<usize>) -> Self {
+        self._capacity = capacity;
+        self
+    }
+
     pub fn build(self) -> Pool<T> {
+        let container_capacity = self._capacity.unwrap_or_else(|| 10);
+
         Pool {
             connector: self._connector.expect("A pool connector is required"),
-            connections: Arc::new(RwLock::new(VecDeque::new())),
+            connections: Arc::new(RwLock::new(VecDeque::with_capacity(container_capacity))),
             timeout: self._timeout,
             max_tries: self._max_tries,
+            capacity: self._capacity,
         }
     }
 }

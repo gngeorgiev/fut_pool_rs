@@ -15,7 +15,7 @@ where
 {
     pool: Pool<T>,
     started_at: Instant,
-    tries: u32,
+    tries: usize,
     connector_future_in_progress: Option<Pin<Box<Future<Output = Result<T>>>>>,
 }
 
