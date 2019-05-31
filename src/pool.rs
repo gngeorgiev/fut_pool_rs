@@ -70,12 +70,11 @@ where
         self.connections.read().len()
     }
 
-    pub async fn initialize(&self, mut amount: usize) -> Result<()> {
-        if let Some(cap) = self.capacity {
-            if cap > 0 && amount > cap {
-                amount = cap
-            }
-        }
+    pub async fn initialize(&self, amount: usize) -> Result<()> {
+        let amount = self
+            .capacity
+            .map(|cap| if cap > 0 && amount > cap { cap } else { amount })
+            .unwrap_or(amount);
 
         let mut initialized = Vec::with_capacity(amount);
         for _ in 0..amount {
@@ -84,5 +83,20 @@ where
         initialized.into_iter().for_each(|c| self.put(c));
 
         Ok(())
+    }
+
+    pub fn destroy(&self, mut amount: usize) {
+        loop {
+            if amount == 0 {
+                break;
+            }
+
+            if let Some(mut item) = self.try_take() {
+                amount -= 1;
+                item.detach();
+            } else {
+                break;
+            }
+        }
     }
 }

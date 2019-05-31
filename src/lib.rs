@@ -244,6 +244,34 @@ mod tests {
     }
 
     #[test]
+    fn initialize_10_destroy_3() {
+        let pool = Pool::<TcpConn>::builder()
+            .connector(|| futures::future::ok(TcpConn(true)))
+            .build();
+
+        let fut = async move {
+            pool.initialize(10).await.unwrap();
+            pool.destroy(3);
+            assert_eq!(pool.size(), 7);
+        };
+        tokio_run_async!(fut);
+    }
+
+    #[test]
+    fn initialize_10_destroy_11() {
+        let pool = Pool::<TcpConn>::builder()
+            .connector(|| futures::future::ok(TcpConn(true)))
+            .build();
+
+        let fut = async move {
+            pool.initialize(10).await.unwrap();
+            pool.destroy(11);
+            assert_eq!(pool.size(), 0);
+        };
+        tokio_run_async!(fut);
+    }
+
+    #[test]
     fn fail_after_3_max_tries() {
         use std::sync::{Arc, Mutex};
 

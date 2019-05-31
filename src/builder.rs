@@ -57,11 +57,11 @@ where
     }
 
     pub fn build(self) -> Pool<T> {
-        let container_capacity = self._capacity.unwrap_or_else(|| 10);
-
         Pool {
             connector: self._connector.expect("A pool connector is required"),
-            connections: Arc::new(RwLock::new(VecDeque::with_capacity(container_capacity))),
+            connections: Arc::new(RwLock::new(VecDeque::with_capacity(
+                self._capacity.unwrap_or_else(|| 10),
+            ))),
             timeout: self._timeout,
             max_tries: self._max_tries,
             capacity: self._capacity,
