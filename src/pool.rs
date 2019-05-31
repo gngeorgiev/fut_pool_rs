@@ -69,4 +69,20 @@ where
     pub fn size(&self) -> usize {
         self.connections.read().len()
     }
+
+    pub async fn initialize(&self, mut amount: usize) -> Result<()> {
+        if let Some(cap) = self.capacity {
+            if cap > 0 && amount > cap {
+                amount = cap
+            }
+        }
+
+        let mut initialized = Vec::with_capacity(amount);
+        for _ in 0..amount {
+            initialized.push(self.take().await?.detach().unwrap());
+        }
+        initialized.into_iter().for_each(|c| self.put(c));
+
+        Ok(())
+    }
 }
