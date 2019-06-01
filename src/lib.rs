@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn constant_backoff_100ms() {
+    fn constant_backoff_not_used_on_invalid_conn() {
         use std::sync::{Arc,Mutex};
 
         let first_invoke = Arc::new(Mutex::new(None));
@@ -290,7 +290,6 @@ mod tests {
             .connector(move || {
                 let mut f = f.lock().unwrap();
                 let mut s = s.lock().unwrap();
-
 
                 if f.is_none() {
                     *f = Some(Instant::now());
@@ -311,7 +310,83 @@ mod tests {
         let f = first_invoke.lock().unwrap();
         let s = second_invoke.lock().unwrap();
         let diff = s.unwrap().duration_since(f.unwrap());
+        assert!(diff.as_millis() < 100);
+    }
+
+    #[test]
+    fn constant_backoff_100ms_on_error() {
+        use std::sync::{Arc,Mutex};
+
+        let first_invoke = Arc::new(Mutex::new(None));
+        let second_invoke = Arc::new(Mutex::new(None));
+
+        let f = first_invoke.clone();
+        let s = second_invoke.clone();
+
+        let pool = Pool::<TcpConnErr>::builder()
+            .connector(move || {
+                let mut f = f.lock().unwrap();
+                let mut s = s.lock().unwrap();
+
+                if f.is_none() {
+                    *f = Some(Instant::now());
+                    futures::future::ok(TcpConnErr(Some(ErrorKind::AddrInUse)))
+                } else {
+                    *s = Some(Instant::now());
+                    futures::future::ok(TcpConnErr(None))
+                }
+            })
+            .timeout(None)
+            .backoff(BackoffStrategy::Fixed(FixedIntervalBackoff::from_millis(100)))
+            .build();
+
+        let fut = async move {
+            pool.initialize(2).await.unwrap();
+        };
+        tokio_run_async!(fut);
+
+        let f = first_invoke.lock().unwrap();
+        let s = second_invoke.lock().unwrap();
+        let diff = s.unwrap().duration_since(f.unwrap());
         assert!(diff.as_millis() >= 100);
+    }
+
+    #[test]
+    fn constant_backoff_50ms_on_error_fail() {
+        use std::sync::{Arc,Mutex};
+
+        let first_invoke = Arc::new(Mutex::new(None));
+        let second_invoke = Arc::new(Mutex::new(None));
+
+        let f = first_invoke.clone();
+        let s = second_invoke.clone();
+
+        let pool = Pool::<TcpConnErr>::builder()
+            .connector(move || {
+                let mut f = f.lock().unwrap();
+                let mut s = s.lock().unwrap();
+
+                if f.is_none() {
+                    *f = Some(Instant::now());
+                    futures::future::ok(TcpConnErr(Some(ErrorKind::AddrInUse)))
+                } else {
+                    *s = Some(Instant::now());
+                    futures::future::ok(TcpConnErr(None))
+                }
+            })
+            .timeout(None)
+            .backoff(BackoffStrategy::Fixed(FixedIntervalBackoff::from_millis(50)))
+            .build();
+
+        let fut = async move {
+            pool.initialize(2).await.unwrap();
+        };
+        tokio_run_async!(fut);
+
+        let f = first_invoke.lock().unwrap();
+        let s = second_invoke.lock().unwrap();
+        let diff = s.unwrap().duration_since(f.unwrap());
+        assert!(diff.as_millis() < 200);
     }
 
     #[test]
@@ -326,7 +401,7 @@ mod tests {
                 let cc = cc.clone();
                 let mut cc = cc.lock().unwrap();
                 *cc = (*cc) + 1;
-                futures::future::ok(TcpConnErr(ErrorKind::BrokenPipe))
+                futures::future::ok(TcpConnErr(Some(ErrorKind::BrokenPipe)))
             })
             .max_tries(Some(3))
             .build();
@@ -342,11 +417,14 @@ mod tests {
     }
 
     #[derive(Debug, Clone)]
-    struct TcpConnErr(ErrorKind);
+    struct TcpConnErr(Option<ErrorKind>);
 
     impl Connection for TcpConnErr {
         fn test_poll(&mut self, _: &mut Context) -> Poll<Result<bool>> {
-            Poll::Ready(Err(Error::from(self.0)))
+            match self.0 {
+                Some(err) => Poll::Ready(Err(Error::from(err))),
+                None => Poll::Ready(Ok(true)),
+            }
         }
     }
 }

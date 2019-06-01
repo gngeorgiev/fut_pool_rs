@@ -1,7 +1,7 @@
 use std::io::{Error, ErrorKind, Result};
 use std::pin::Pin;
 use std::task::Context;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures::{ready, try_ready, Future, FutureExt, Poll};
 use futures_timer::Delay;
@@ -21,6 +21,7 @@ where
     connector_future_in_progress: Option<Pin<Box<dyn Future<Output = Result<T>>>>>,
     backoff: BackoffStrategy,
     first_poll: bool,
+    backoff_delay: Option<Delay>,
 }
 
 impl<T> PoolTaker<T>
@@ -34,6 +35,7 @@ where
             connector_future_in_progress: None,
             first_poll: true,
             backoff: pool.backoff.clone(),
+            backoff_delay: None,
             pool,
         }
     }
@@ -42,6 +44,20 @@ where
 unsafe impl<T> Send for PoolTaker<T> where T: Connection {}
 
 unsafe impl<T> Sync for PoolTaker<T> where T: Connection {}
+
+impl<T> PoolTaker<T>
+where
+    T: Connection,
+{
+    fn backoff_timeout(&mut self) -> Option<Duration> {
+        match self.backoff {
+            BackoffStrategy::Exponential(ref mut bo) => bo.next(),
+            BackoffStrategy::Fibonacci(ref mut bo) => bo.next(),
+            BackoffStrategy::Fixed(ref mut bo) => bo.next(),
+            BackoffStrategy::None => None,
+        }
+    }
+}
 
 impl<T> Future for PoolTaker<T>
 where
@@ -55,21 +71,11 @@ where
             {
                 return Poll::Ready(Err(Error::from(ErrorKind::TimedOut)));
             }
-
-            let timeout = match self.backoff {
-                BackoffStrategy::Exponential(ref mut bo) => bo.next(),
-                BackoffStrategy::Fibonacci(ref mut bo) => bo.next(),
-                BackoffStrategy::Fixed(ref mut bo) => bo.next(),
-                BackoffStrategy::None => None,
-            };
-
-            if let Some(timeout) = timeout {
-                let mut delay = Delay::new(timeout);
-                ready!(delay.poll_unpin(cx))?;
-            }
         }
 
+        self.backoff_delay = None;
         self.first_poll = false;
+
         let mut available_connection = self.pool.try_take();
         let connection_is_in_progress = self.connector_future_in_progress.is_some();
         if available_connection.is_none() && !connection_is_in_progress {
@@ -107,6 +113,15 @@ where
                     if self.pool.max_tries.is_some() && self.tries >= self.pool.max_tries.unwrap() {
                         Poll::Ready(Err(err))
                     } else {
+                        let timeout = self.backoff_timeout();
+                        if let Some(timeout) = timeout {
+                            self.backoff_delay = Some(Delay::new(timeout));
+                            match self.backoff_delay {
+                                Some(ref mut delay) => ready!(delay.poll_unpin(cx))?,
+                                None => unreachable!(),
+                            };
+                        }
+
                         cx.waker().wake_by_ref();
                         Poll::Pending
                     }
