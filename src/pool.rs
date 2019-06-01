@@ -1,159 +1,105 @@
-use futures::{task, try_ready, Async, Future, Poll};
 use std::collections::VecDeque;
-use std::io;
-use std::ops::Deref;
-use std::sync::{Arc, RwLock};
-use tokio::net::TcpStream;
-use tokio::io::Error;
-use smallvec::SmallVec;
+use std::io::Result;
+use std::sync::Arc;
+use std::time::Duration;
 
+use parking_lot::RwLock;
+
+use crate::backoff::BackoffStrategy;
 use crate::builder::PoolBuilder;
-use crate::connector::Connector;
-use core::borrow::Borrow;
+use crate::connection::Connection;
+use crate::factory::ObjectFactory;
+use crate::guard::PoolGuard;
+use crate::taker::PoolTaker;
 
-pub trait Peek {
-    fn poll_peek(&mut self, buf: &mut [u8]) -> Poll<usize, Error>;
+pub struct Pool<T>
+where
+    T: Connection,
+{
+    pub(crate) factory: Arc<ObjectFactory<T>>,
+    pub(crate) objects: Arc<RwLock<VecDeque<T>>>,
+
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) max_tries: Option<usize>,
+    pub(crate) capacity: Option<usize>,
+    pub(crate) backoff: BackoffStrategy,
 }
 
-impl Peek for TcpStream {
-    fn poll_peek(&mut self, buf: &mut [u8]) -> Poll<usize, Error> {
-        self.poll_peek(buf)
-    }
-}
-
-pub struct Pool<T> where T: Peek {
-    pub(crate) connector: Arc<Box<Connector<T>>>,
-
-    pub(crate) items: Arc<RwLock<VecDeque<T>>>,
-}
-
-impl<T> Clone for Pool<T> where T: Peek {
+impl<T> Clone for Pool<T>
+where
+    T: Connection,
+{
     fn clone(&self) -> Self {
         Pool {
-            connector: self.connector.clone(),
-            items: self.items.clone(),
+            factory: self.factory.clone(),
+            backoff: self.backoff.clone(),
+            objects: self.objects.clone(),
+            timeout: self.timeout.clone(),
+            max_tries: self.max_tries.clone(),
+            capacity: self.capacity.clone(),
         }
     }
 }
 
-impl<T> Pool<T> where T: Peek {
+impl<T> Pool<T>
+where
+    T: Connection,
+{
     pub fn builder() -> PoolBuilder<T> {
         PoolBuilder::new()
     }
 
-    pub fn take(&self) -> PoolTaker<T> {
-        PoolTaker::new(self.clone())
+    pub async fn take(&self) -> Result<PoolGuard<T>> {
+        PoolTaker::<T>::new(self.clone()).await
     }
 
-    pub fn try_take(&self) -> Option<T> {
-        let items = self.items.clone();
-        let mut items = items.write().unwrap();
-        items.pop_front()
+    pub fn try_take(&self) -> Option<PoolGuard<T>> {
+        let mut connections = self.objects.write();
+        let conn = connections.pop_front()?;
+        Some(PoolGuard::new(conn, self.clone()))
     }
 
-    pub fn put(&self, item: T) {
-        let mut items = self.items.write().unwrap();
-        items.push_back(item);
+    pub fn put(&self, obj: T) {
+        let mut objects = self.objects.write();
+        let capacity = self.capacity.unwrap_or_else(|| 0);
+        if capacity > 0 && objects.len() >= capacity {
+            objects.pop_back();
+        }
+
+        objects.push_back(obj);
     }
 
     pub fn size(&self) -> usize {
-        self.items.read().unwrap().len()
+        self.objects.read().len()
     }
-}
 
-pub struct PoolTaker<T> where T: Peek {
-    buf: SmallVec<[u8; 1]>,
-    pool: Pool<T>,
-    connector_future: Option<Box<Future<Item = T, Error = io::Error>>>,
-}
+    pub async fn initialize(&self, amount: usize) -> Result<()> {
+        let amount = self
+            .capacity
+            .map(|cap| if cap > 0 && amount > cap { cap } else { amount })
+            .unwrap_or(amount);
 
-unsafe impl<T> Send for PoolTaker<T> where T: Peek {}
-unsafe impl<T> Sync for PoolTaker<T> where T: Peek {}
-
-impl<T> PoolTaker<T> where T: Peek {
-    fn new(pool: Pool<T>) -> PoolTaker<T> {
-        PoolTaker {
-            buf: SmallVec::new(),
-            pool,
-            connector_future: None,
+        let mut initialized = Vec::with_capacity(amount);
+        for _ in 0..amount {
+            initialized.push(self.take().await?.detach().unwrap());
         }
+        initialized.into_iter().for_each(|c| self.put(c));
+
+        Ok(())
     }
-}
 
-impl<T> Future for PoolTaker<T> where T: Peek {
-    type Item = T;
+    pub fn destroy(&self, mut amount: usize) {
+        loop {
+            if amount == 0 {
+                break;
+            }
 
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        if let Some(ref mut connector_future) = self.connector_future {
-            dbg!("poll 1");
-            let item = try_ready!(connector_future.poll());
-            Ok(Async::Ready(item))
-        } else {
-            if let Some(mut item) = self.pool.try_take() {
-                dbg!("poll 2");
-                match item.poll_peek(self.buf.as_mut_slice()) {
-                    Ok(Async::NotReady) => {
-                        task::current().notify();
-                        Ok(Async::NotReady)
-                    },
-                    Ok(Async::Ready(b)) => {
-                        if b == 0 {
-                            task::current().notify();
-                            Ok(Async::NotReady)
-                        } else {
-                            Ok(Async::Ready(item))
-                        }
-                    },
-                    Err(err) => {
-                        task::current().notify();
-                        Ok(Async::NotReady)
-                    }
-                }
+            if let Some(mut item) = self.try_take() {
+                amount -= 1;
+                item.detach();
             } else {
-                dbg!("poll 3");
-                self.connector_future = Some((self.pool.connector)());
-                task::current().notify();
-                Ok(Async::NotReady)
+                break;
             }
         }
     }
 }
-
-//pub struct PoolGuard<T> where T: Peek {
-//    inner: Option<T>,
-//    pool: Pool<T>,
-//}
-//
-//impl<T> PoolGuard<T> where T: Peek {
-//    fn new(item: T, pool: Pool<T>) -> PoolGuard<T> {
-//        PoolGuard {
-//            inner: Some(item),
-//            pool,
-//        }
-//    }
-//}
-
-//impl<T> PoolGuard<T> where T: Peek {
-//    pub fn detach(&mut self) -> Option<T> {
-//        let item = self.inner.take();
-//        item
-//    }
-//}
-//
-//impl<T> Deref for PoolGuard<T> where T: Peek {
-//    type Target = T;
-//
-//    fn deref(&self) -> &Self::Target {
-//        &self.inner.as_ref().expect("deref PoolGuard no inner")
-//    }
-//}
-//
-//impl<T> Drop for PoolGuard<T> where T: Peek {
-//    fn drop(&mut self) {
-//        if let Some(item) = self.inner.take() {
-//            self.pool.put(item);
-//        }
-//    }
-//}
