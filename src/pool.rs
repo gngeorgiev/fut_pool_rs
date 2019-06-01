@@ -17,7 +17,7 @@ where
     T: Connection,
 {
     pub(crate) factory: Arc<ObjectFactory<T>>,
-    pub(crate) connections: Arc<RwLock<VecDeque<T>>>,
+    pub(crate) objects: Arc<RwLock<VecDeque<T>>>,
 
     pub(crate) timeout: Option<Duration>,
     pub(crate) max_tries: Option<usize>,
@@ -33,7 +33,7 @@ where
         Pool {
             factory: self.factory.clone(),
             backoff: self.backoff.clone(),
-            connections: self.connections.clone(),
+            objects: self.objects.clone(),
             timeout: self.timeout.clone(),
             max_tries: self.max_tries.clone(),
             capacity: self.capacity.clone(),
@@ -54,23 +54,23 @@ where
     }
 
     pub fn try_take(&self) -> Option<PoolGuard<T>> {
-        let mut connections = self.connections.write();
+        let mut connections = self.objects.write();
         let conn = connections.pop_front()?;
         Some(PoolGuard::new(conn, self.clone()))
     }
 
-    pub fn put(&self, connection: T) {
-        let mut connections = self.connections.write();
+    pub fn put(&self, obj: T) {
+        let mut objects = self.objects.write();
         let capacity = self.capacity.unwrap_or_else(|| 0);
-        if capacity > 0 && connections.len() >= capacity {
-            connections.pop_back();
+        if capacity > 0 && objects.len() >= capacity {
+            objects.pop_back();
         }
 
-        connections.push_back(connection);
+        objects.push_back(obj);
     }
 
     pub fn size(&self) -> usize {
-        self.connections.read().len()
+        self.objects.read().len()
     }
 
     pub async fn initialize(&self, amount: usize) -> Result<()> {

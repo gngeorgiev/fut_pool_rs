@@ -15,7 +15,7 @@ pub struct PoolBuilder<T>
 where
     T: Connection,
 {
-    _connector: Option<Arc<ObjectFactory<T>>>,
+    _factory: Option<Arc<ObjectFactory<T>>>,
     _timeout: Option<Duration>,
     _max_tries: Option<usize>,
     _capacity: Option<usize>,
@@ -28,7 +28,7 @@ where
 {
     pub fn new() -> PoolBuilder<T> {
         PoolBuilder {
-            _connector: None,
+            _factory: None,
             _timeout: Some(Duration::from_secs(10)),
             _max_tries: Some(10),
             _capacity: None,
@@ -36,11 +36,11 @@ where
         }
     }
 
-    pub fn connector<F>(mut self, connector: impl Fn() -> F + Send + Sync + 'static) -> Self
+    pub fn factory<F>(mut self, factory: impl Fn() -> F + Send + Sync + 'static) -> Self
     where
         F: Future<Output = Result<T>> + 'static,
     {
-        self._connector = Some(Arc::new(move || Box::pin(connector())));
+        self._factory = Some(Arc::new(move || Box::pin(factory())));
         self
     }
 
@@ -66,8 +66,8 @@ where
 
     pub fn build(self) -> Pool<T> {
         Pool {
-            factory: self._connector.expect("A pool connector is required"),
-            connections: Arc::new(RwLock::new(VecDeque::with_capacity(
+            factory: self._factory.expect("A pool connector is required"),
+            objects: Arc::new(RwLock::new(VecDeque::with_capacity(
                 self._capacity.unwrap_or_else(|| 10),
             ))),
             backoff: self._backoff,

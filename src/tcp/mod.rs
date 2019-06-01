@@ -26,7 +26,7 @@ mod tests {
     fn tcp_stream_compiles() {
         let addr: SocketAddr = "127.0.0.1:80".parse().unwrap();
         Pool::builder()
-            .connector(move || TcpStream::connect(&addr).compat())
+            .factory(move || TcpStream::connect(&addr).compat())
             .build();
     }
 }

@@ -5,7 +5,7 @@ pub struct PoolGuard<T>
 where
     T: Connection,
 {
-    connection: Option<T>,
+    object: Option<T>,
     pool: Pool<T>,
 }
 
@@ -13,9 +13,9 @@ impl<T> PoolGuard<T>
 where
     T: Connection,
 {
-    pub(crate) fn new(connection: T, pool: Pool<T>) -> PoolGuard<T> {
+    pub(crate) fn new(object: T, pool: Pool<T>) -> PoolGuard<T> {
         PoolGuard {
-            connection: Some(connection),
+            object: Some(object),
             pool,
         }
     }
@@ -26,8 +26,8 @@ where
     T: Connection,
 {
     pub fn detach(&mut self) -> Option<T> {
-        let connection = self.connection.take();
-        connection
+        let object = self.object.take();
+        object
     }
 }
 
@@ -38,7 +38,7 @@ where
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.connection.as_ref().expect("deref PoolGuard no inner")
+        &self.object.as_ref().expect("deref PoolGuard no inner")
     }
 }
 
@@ -47,8 +47,8 @@ where
     T: Connection,
 {
     fn drop(&mut self) {
-        if let Some(connection) = self.connection.take() {
-            self.pool.put(connection);
+        if let Some(object) = self.object.take() {
+            self.pool.put(object);
         }
     }
 }

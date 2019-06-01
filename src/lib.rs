@@ -1,4 +1,4 @@
-#![feature(async_await)]
+#![feature(async_await, integer_atomics)]
 
 mod builder;
 mod factory;
@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn default_values() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .build();
 
         assert_eq!(0, pool.size());
@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn connect_1() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .build();
 
         let p = pool.clone();
@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn connect_2_take_detach_one() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .build();
 
         let fut = async move {
@@ -109,7 +109,7 @@ mod tests {
         let c = Arc::new(Mutex::new(0));
         let cc = c.clone();
         let pool = Pool::<TcpConn>::builder()
-            .connector(move || {
+            .factory(move || {
                 let cc = cc.clone();
                 let mut cc = cc.lock().unwrap();
                 *cc = (*cc) + 1;
@@ -134,7 +134,7 @@ mod tests {
         let c = Arc::new(Mutex::new(0));
         let cc = c.clone();
         let pool = Pool::<TcpConn>::builder()
-            .connector(move || {
+            .factory(move || {
                 let cc = cc.clone();
                 let mut cc = cc.lock().unwrap();
                 *cc = (*cc) + 1;
@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn connect_timeout() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(false)))
+            .factory(|| futures::future::ok(TcpConn(false)))
             .timeout(Some(Duration::from_millis(100)))
             .build();
 
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn capacity_2() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .capacity(Some(2))
             .build();
 
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn capacity_none() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .capacity(None)
             .build();
 
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn initialize_10() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .capacity(None)
             .build();
 
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn initialize_10_capacity_8() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .capacity(Some(8))
             .build();
 
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn initialize_10_capacity_11() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .capacity(Some(11))
             .build();
 
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn initialize_10_destroy_3() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .build();
 
         let fut = async move {
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn initialize_10_destroy_11() {
         let pool = Pool::<TcpConn>::builder()
-            .connector(|| futures::future::ok(TcpConn(true)))
+            .factory(|| futures::future::ok(TcpConn(true)))
             .build();
 
         let fut = async move {
@@ -287,7 +287,7 @@ mod tests {
         let s = second_invoke.clone();
 
         let pool = Pool::<TcpConn>::builder()
-            .connector(move || {
+            .factory(move || {
                 let mut f = f.lock().unwrap();
                 let mut s = s.lock().unwrap();
 
@@ -324,7 +324,7 @@ mod tests {
         let s = second_invoke.clone();
 
         let pool = Pool::<TcpConnErr>::builder()
-            .connector(move || {
+            .factory(move || {
                 let mut f = f.lock().unwrap();
                 let mut s = s.lock().unwrap();
 
@@ -362,7 +362,7 @@ mod tests {
         let s = second_invoke.clone();
 
         let pool = Pool::<TcpConnErr>::builder()
-            .connector(move || {
+            .factory(move || {
                 let mut f = f.lock().unwrap();
                 let mut s = s.lock().unwrap();
 
@@ -397,7 +397,7 @@ mod tests {
         let cc = c.clone();
 
         let pool = Pool::<TcpConnErr>::builder()
-            .connector(move || {
+            .factory(move || {
                 let cc = cc.clone();
                 let mut cc = cc.lock().unwrap();
                 *cc = (*cc) + 1;
