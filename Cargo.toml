@@ -1,5 +1,5 @@
 [package]
-name = "futures_conn_pool"
+name = "fut_pool"
 version = "0.1.0"
 authors = ["gngeorgiev <gngeorgiev.it@gmail.com>"]
 edition = "2018"
