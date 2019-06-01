@@ -1,25 +1,30 @@
 #![feature(async_await)]
 
 mod builder;
-mod connector;
+mod factory;
 mod connection;
 mod pool;
 mod taker;
 mod guard;
+mod backoff;
+
+#[macro_use]
+mod util;
 
 mod tcp;
 
-pub use builder::PoolBuilder;
-pub use connection::Connection;
-pub use pool::{Pool};
-pub use guard::PoolGuard;
-pub use taker::PoolTaker;
+pub use crate::builder::PoolBuilder;
+pub use crate::connection::Connection;
+pub use crate::pool::{Pool};
+pub use crate::guard::PoolGuard;
+pub use crate::taker::PoolTaker;
+pub use crate::backoff::*;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::task::Context;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     use futures::Poll;
     use std::io::{Result, Error, ErrorKind};
 
@@ -269,6 +274,44 @@ mod tests {
             assert_eq!(pool.size(), 0);
         };
         tokio_run_async!(fut);
+    }
+
+    #[test]
+    fn constant_backoff_100ms() {
+        use std::sync::{Arc,Mutex};
+
+        let first_invoke = Arc::new(Mutex::new(None));
+        let second_invoke = Arc::new(Mutex::new(None));
+
+        let f = first_invoke.clone();
+        let s = second_invoke.clone();
+
+        let pool = Pool::<TcpConn>::builder()
+            .connector(move || {
+                let mut f = f.lock().unwrap();
+                let mut s = s.lock().unwrap();
+
+
+                if f.is_none() {
+                    *f = Some(Instant::now());
+                    futures::future::ok(TcpConn(false))
+                } else {
+                    *s = Some(Instant::now());
+                    futures::future::ok(TcpConn(true))
+                }
+            })
+            .backoff(BackoffStrategy::Fixed(FixedIntervalBackoff::from_millis(100)))
+            .build();
+
+        let fut = async move {
+            pool.initialize(2).await.unwrap();
+        };
+        tokio_run_async!(fut);
+
+        let f = first_invoke.lock().unwrap();
+        let s = second_invoke.lock().unwrap();
+        let diff = s.unwrap().duration_since(f.unwrap());
+        assert!(diff.as_millis() >= 100);
     }
 
     #[test]

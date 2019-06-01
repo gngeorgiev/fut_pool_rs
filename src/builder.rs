@@ -6,18 +6,20 @@ use futures::Future;
 use parking_lot::RwLock;
 use tokio::io::Result;
 
+use crate::backoff::BackoffStrategy;
 use crate::connection::Connection;
-use crate::connector::Connector;
+use crate::factory::ObjectFactory;
 use crate::pool::Pool;
 
 pub struct PoolBuilder<T>
 where
     T: Connection,
 {
-    _connector: Option<Arc<Connector<T>>>,
+    _connector: Option<Arc<ObjectFactory<T>>>,
     _timeout: Option<Duration>,
     _max_tries: Option<usize>,
     _capacity: Option<usize>,
+    _backoff: BackoffStrategy,
 }
 
 impl<T> PoolBuilder<T>
@@ -30,6 +32,7 @@ where
             _timeout: Some(Duration::from_secs(10)),
             _max_tries: Some(10),
             _capacity: None,
+            _backoff: BackoffStrategy::None,
         }
     }
 
@@ -56,12 +59,18 @@ where
         self
     }
 
+    pub fn backoff(mut self, backoff: BackoffStrategy) -> Self {
+        self._backoff = backoff;
+        self
+    }
+
     pub fn build(self) -> Pool<T> {
         Pool {
-            connector: self._connector.expect("A pool connector is required"),
+            factory: self._connector.expect("A pool connector is required"),
             connections: Arc::new(RwLock::new(VecDeque::with_capacity(
                 self._capacity.unwrap_or_else(|| 10),
             ))),
+            backoff: self._backoff,
             timeout: self._timeout,
             max_tries: self._max_tries,
             capacity: self._capacity,

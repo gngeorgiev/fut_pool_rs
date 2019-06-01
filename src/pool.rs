@@ -5,9 +5,10 @@ use std::time::Duration;
 
 use parking_lot::RwLock;
 
+use crate::backoff::BackoffStrategy;
 use crate::builder::PoolBuilder;
 use crate::connection::Connection;
-use crate::connector::Connector;
+use crate::factory::ObjectFactory;
 use crate::guard::PoolGuard;
 use crate::taker::PoolTaker;
 
@@ -15,12 +16,13 @@ pub struct Pool<T>
 where
     T: Connection,
 {
-    pub(crate) connector: Arc<Connector<T>>,
+    pub(crate) factory: Arc<ObjectFactory<T>>,
     pub(crate) connections: Arc<RwLock<VecDeque<T>>>,
 
     pub(crate) timeout: Option<Duration>,
     pub(crate) max_tries: Option<usize>,
     pub(crate) capacity: Option<usize>,
+    pub(crate) backoff: BackoffStrategy,
 }
 
 impl<T> Clone for Pool<T>
@@ -29,7 +31,8 @@ where
 {
     fn clone(&self) -> Self {
         Pool {
-            connector: self.connector.clone(),
+            factory: self.factory.clone(),
+            backoff: self.backoff.clone(),
             connections: self.connections.clone(),
             timeout: self.timeout.clone(),
             max_tries: self.max_tries.clone(),
@@ -47,7 +50,7 @@ where
     }
 
     pub async fn take(&self) -> Result<PoolGuard<T>> {
-        PoolTaker::new(self.clone()).await
+        PoolTaker::<T>::new(self.clone()).await
     }
 
     pub fn try_take(&self) -> Option<PoolGuard<T>> {

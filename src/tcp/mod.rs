@@ -9,11 +9,8 @@ use crate::connection::Connection;
 impl Connection for TcpStream {
     fn test_poll(&mut self, _: &mut Context) -> Poll<Result<bool>> {
         let mut buf = [0, 1];
-        match self.poll_peek(&mut buf) {
-            Ok(futures01::Async::Ready(b)) => Poll::Ready(Ok(b > 0)),
-            Ok(futures01::Async::NotReady) => Poll::Pending,
-            Err(err) => Poll::Ready(Err(err)),
-        }
+        let b = poll_future_01_in_03!(self.poll_peek(&mut buf));
+        Poll::Ready(Ok(b > 0))
     }
 }
 
