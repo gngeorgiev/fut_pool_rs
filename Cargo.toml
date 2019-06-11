@@ -11,3 +11,4 @@ futures = { version = "0.3.0-alpha.16", package = "futures-preview", features = 
 parking_lot = "0.8"
 futures-timer = "0.2"
 tokio-retry = "0.2"
+log = "0.4"

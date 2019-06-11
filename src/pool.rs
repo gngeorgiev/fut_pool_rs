@@ -7,14 +7,14 @@ use parking_lot::RwLock;
 
 use crate::backoff::BackoffStrategy;
 use crate::builder::PoolBuilder;
-use crate::connection::Connection;
 use crate::factory::ObjectFactory;
 use crate::guard::PoolGuard;
+use crate::object::PoolObject;
 use crate::taker::PoolTaker;
 
 pub struct Pool<T>
 where
-    T: Connection,
+    T: PoolObject,
 {
     pub(crate) factory: Arc<ObjectFactory<T>>,
     pub(crate) objects: Arc<RwLock<VecDeque<T>>>,
@@ -27,7 +27,7 @@ where
 
 impl<T> Clone for Pool<T>
 where
-    T: Connection,
+    T: PoolObject,
 {
     fn clone(&self) -> Self {
         Pool {
@@ -43,7 +43,7 @@ where
 
 impl<T> Pool<T>
 where
-    T: Connection,
+    T: PoolObject,
 {
     pub fn builder() -> PoolBuilder<T> {
         PoolBuilder::new()

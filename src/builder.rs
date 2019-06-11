@@ -7,13 +7,13 @@ use parking_lot::RwLock;
 use tokio::io::Result;
 
 use crate::backoff::BackoffStrategy;
-use crate::connection::Connection;
 use crate::factory::ObjectFactory;
+use crate::object::PoolObject;
 use crate::pool::Pool;
 
 pub struct PoolBuilder<T>
 where
-    T: Connection,
+    T: PoolObject,
 {
     _factory: Option<Arc<ObjectFactory<T>>>,
     _timeout: Option<Duration>,
@@ -24,7 +24,7 @@ where
 
 impl<T> PoolBuilder<T>
 where
-    T: Connection,
+    T: PoolObject,
 {
     pub fn new() -> PoolBuilder<T> {
         PoolBuilder {

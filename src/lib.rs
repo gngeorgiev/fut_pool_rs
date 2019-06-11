@@ -1,8 +1,11 @@
 #![feature(async_await, integer_atomics)]
 
+#[macro_use]
+extern crate log;
+
 mod builder;
 mod factory;
-mod connection;
+mod object;
 mod pool;
 mod taker;
 mod guard;
@@ -11,11 +14,9 @@ mod backoff;
 #[macro_use]
 mod util;
 
-mod tcp;
-
 pub use crate::builder::PoolBuilder;
-pub use crate::connection::Connection;
-pub use crate::pool::{Pool};
+pub use crate::object::PoolObject;
+pub use crate::pool::Pool;
 pub use crate::guard::PoolGuard;
 pub use crate::taker::PoolTaker;
 pub use crate::backoff::*;
@@ -40,7 +41,7 @@ mod tests {
     #[derive(Debug, Clone)]
     struct TcpConn(bool);
 
-    impl Connection for TcpConn {
+    impl PoolObject for TcpConn {
         fn test_poll(&mut self, _: &mut Context) -> Poll<Result<bool>> {
             Poll::Ready(Ok(self.0))
         }
@@ -419,7 +420,7 @@ mod tests {
     #[derive(Debug, Clone)]
     struct TcpConnErr(Option<ErrorKind>);
 
-    impl Connection for TcpConnErr {
+    impl PoolObject for TcpConnErr {
         fn test_poll(&mut self, _: &mut Context) -> Poll<Result<bool>> {
             match self.0 {
                 Some(err) => Poll::Ready(Err(Error::from(err))),
